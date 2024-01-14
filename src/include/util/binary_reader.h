@@ -20,7 +20,6 @@
 #pragma once
 
 #include <array>
-#include <cstring>
 #include <optional>
 #include <span>
 #include <type_traits>
@@ -60,129 +59,10 @@ public:
     return value;
   }
 
-  template <bool Safe = true>
-  std::optional<u32> ReadU24(std::optional<size_t> read_offset = std::nullopt) {
-    if (read_offset)
-      Seek(*read_offset);
-    if constexpr (Safe) {
-      if (m_offset + 3 > m_data.size())
-        return std::nullopt;
-    }
-    const size_t offset = m_offset;
-    m_offset += 3;
-    if (m_endian == Endianness::Big)
-      return m_data[offset] << 16 | m_data[offset + 1] << 8 | m_data[offset + 2];
-    return m_data[offset + 2] << 16 | m_data[offset + 1] << 8 | m_data[offset];
-  }
-
-  template <typename StringType = std::string>
-  StringType ReadString(size_t offset, std::optional<size_t> max_len = std::nullopt) const {
-    if (offset > m_data.size())
-      throw std::out_of_range("Out of bounds string read");
-
-    // Ensure strnlen doesn't go out of bounds.
-    if (!max_len || *max_len > m_data.size() - offset)
-      max_len = m_data.size() - offset;
-
-    const char* ptr = reinterpret_cast<const char*>(&m_data[offset]);
-    return {ptr, strnlen(ptr, *max_len)};
-  }
-
 private:
   std::span<const u8> m_data{};
   size_t m_offset = 0;
   Endianness m_endian = Endianness::Big;
 };
-
-template <typename T>
-inline void RelocateWithSize(std::span<u8> buffer, T*& ptr, size_t size) {
-  const u64 offset = reinterpret_cast<u64>(ptr);
-  if (buffer.size() < offset || buffer.size() < offset + size)
-    throw std::out_of_range("RelocateWithSize: out of bounds");
-  ptr = reinterpret_cast<T*>(buffer.data() + offset);
-}
-
-template <typename T>
-inline void Relocate(std::span<u8> buffer, T*& ptr, size_t num_objects = 1) {
-  RelocateWithSize(buffer, ptr, sizeof(T) * num_objects);
-}
-
-inline std::string_view ReadString(std::span<u8> buffer, const char* ptr_) {
-  const u8* ptr = reinterpret_cast<const u8*>(ptr_);
-  if (ptr < buffer.data() || buffer.data() + buffer.size() <= ptr)
-    throw std::out_of_range("ReadString: out of bounds");
-  const size_t max_len = buffer.data() + buffer.size() - ptr;
-  const size_t length = strnlen(ptr_, max_len);
-  if (length == max_len)
-    throw std::out_of_range("String is not null-terminated");
-  return {ptr_, length};
-}
-
-template <typename Storage>
-class BinaryWriterBase {
-public:
-  BinaryWriterBase(Endianness endian) : m_endian{endian} {}
-
-  /// Returns a std::vector<u8> with everything written so far, and resets the buffer.
-  std::vector<u8> Finalize() { return std::move(m_data); }
-
-  const auto& Buffer() const { return m_data; }
-  auto& Buffer() { return m_data; }
-  size_t Tell() const { return m_offset; }
-  void Seek(size_t offset) { m_offset = offset; }
-
-  Endianness Endian() const { return m_endian; }
-  BinaryReader Reader() const { return {m_data, m_endian}; }
-
-  void WriteBytes(std::span<const u8> bytes) {
-    if (m_offset + bytes.size() > m_data.size())
-      m_data.resize(m_offset + bytes.size());
-
-    std::memcpy(&m_data[m_offset], bytes.data(), bytes.size());
-    m_offset += bytes.size();
-  }
-
-  template <typename T, typename std::enable_if_t<!std::is_pointer_v<T> &&
-                                                  std::is_trivially_copyable_v<T>>* = nullptr>
-  void Write(T value) {
-    SwapIfNeededInPlace(value, m_endian);
-    WriteBytes({reinterpret_cast<const u8*>(&value), sizeof(value)});
-  }
-
-  void Write(std::string_view str) {
-    WriteBytes({reinterpret_cast<const u8*>(str.data()), str.size()});
-  }
-  void WriteCStr(std::string_view str) {
-    Write(str);
-    WriteNul();
-  }
-
-  void WriteNul() { Write<u8>(0); }
-
-  template <typename Callable>
-  void RunAt(size_t offset, Callable fn) {
-    const size_t current_offset = Tell();
-    Seek(offset);
-    fn(current_offset);
-    Seek(current_offset);
-  }
-
-  template <typename T>
-  void WriteCurrentOffsetAt(size_t offset, size_t base = 0) {
-    RunAt(offset, [this, base](size_t current_offset) { Write(T(current_offset - base)); });
-  }
-
-  void GrowBuffer() {
-    if (m_offset > m_data.size())
-      m_data.resize(m_offset);
-  }
-
-private:
-  Storage m_data;
-  size_t m_offset = 0;
-  Endianness m_endian;
-};
-
-using BinaryWriter = BinaryWriterBase<std::vector<u8>>;
 
 }  // namespace util
