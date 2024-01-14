@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstring>
+#include <tuple>
 #include <type_traits>
 
 #ifdef __APPLE__
@@ -15,9 +16,29 @@
 #include <sys/endian.h>
 #endif
 
-#include "common/types.h"
+#ifndef _WIN32
+#include <arpa/inet.h>
+#endif
 
-namespace common {
+#include <types.h>
+#include <util/type_utils.h>
+
+namespace util {
+
+enum class Endianness {
+  Big,
+  Little,
+};
+
+namespace detail {
+inline Endianness GetPlatformEndianness() {
+#ifdef _WIN32
+  return Endianness::Little;
+#else
+  return htonl(0x12345678) == 0x12345678 ? Endianness::Big : Endianness::Little;
+#endif
+}
+}  // namespace detail
 
 inline u8 swap8(u8 data) {
   return data;
@@ -131,12 +152,62 @@ inline void swap<8>(u8* data) {
   std::memcpy(data, &value, sizeof(u64));
 }
 
+/// Byte swap a value.
 template <typename T>
 inline T SwapValue(T data) {
-  static_assert(std::is_arithmetic<T>::value, "function only makes sense with arithmetic types");
+  static_assert(std::is_arithmetic<T>(), "function only makes sense with arithmetic types");
 
   swap<sizeof(data)>(reinterpret_cast<u8*>(&data));
   return data;
 }
 
-}  // namespace common
+/// Swap a value if its endianness is not the same as the machine endianness.
+/// @param endian  The endianness of the value.
+template <typename T>
+void SwapIfNeededInPlace(T& value, Endianness endian) {
+  if (detail::GetPlatformEndianness() == endian)
+    return;
+
+  if constexpr (std::is_arithmetic<T>()) {
+    value = SwapValue(value);
+  }
+
+  if constexpr (util::ExposesFields<T>()) {
+    std::apply([endian](auto&... fields) { (SwapIfNeededInPlace(fields, endian), ...); },
+               value.fields());
+  }
+}
+
+template <typename T>
+T SwapIfNeeded(T value, Endianness endian) {
+  SwapIfNeededInPlace(value, endian);
+  return value;
+}
+
+constexpr Endianness ByteOrderMarkToEndianness(u16 bom) {
+  return bom == 0xFEFF ? Endianness::Big : Endianness::Little;
+}
+
+/// A wrapper that stores an integer in the specified endianness and automatically bytes swap when
+/// reading/writing the value.
+template <typename T, Endianness Endian>
+struct EndianInt {
+  static_assert(std::is_arithmetic<T>(), "T must be an arithmetic type");
+  EndianInt() = default;
+  EndianInt(T val) { *this = val; }
+  operator T() const { return SwapIfNeeded(raw, Endian); }
+  EndianInt& operator=(T v) {
+    raw = SwapIfNeeded(v, Endian);
+    return *this;
+  }
+
+private:
+  T raw;
+};
+
+template <typename T>
+using BeInt = EndianInt<T, Endianness::Big>;
+template <typename T>
+using LeInt = EndianInt<T, Endianness::Little>;
+
+}  // namespace util

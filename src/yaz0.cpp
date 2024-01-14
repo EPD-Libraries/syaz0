@@ -18,14 +18,13 @@
  */
 
 #include "yaz0.h"
+#include "include/util/binary_reader.h"
 
 #include <algorithm>
 #include <bitset>
 #include <cstring>
-
+#include <stdexcept>
 #include <zlib-ng.h>
-
-#include "common/binary_reader.h"
 
 namespace syaz0 {
 
@@ -34,7 +33,7 @@ constexpr size_t ChunksPerGroup = 8;
 constexpr size_t MaximumMatchLength = 0xFF + 0x12;
 constexpr size_t WindowSize = 0x1000;
 
-static std::optional<Header> GetHeader(common::BinaryReader& reader) {
+static std::optional<Header> GetHeader(util::BinaryReader& reader) {
   const auto header = reader.Read<Header>();
   if (!header)
     return std::nullopt;
@@ -43,8 +42,8 @@ static std::optional<Header> GetHeader(common::BinaryReader& reader) {
   return header;
 }
 
-std::optional<Header> GetHeader(tcb::span<const u8> data) {
-  common::BinaryReader reader{data, common::Endianness::Big};
+std::optional<Header> GetHeader(std::span<const u8> data) {
+  util::BinaryReader reader{data, util::Endianness::Big};
   return GetHeader(reader);
 }
 
@@ -105,7 +104,7 @@ private:
 };
 }  // namespace
 
-std::vector<u8> Compress(tcb::span<const u8> src, u32 data_alignment, int level) {
+std::vector<u8> Compress(std::span<const u8> src, u32 data_alignment, int level) {
   std::vector<u8> result(sizeof(Header));
   result.reserve(src.size());
 
@@ -133,7 +132,7 @@ std::vector<u8> Compress(tcb::span<const u8> src, u32 data_alignment, int level)
   return result;
 }
 
-std::vector<u8> Decompress(tcb::span<const u8> src) {
+std::vector<u8> Decompress(std::span<const u8> src) {
   const auto header = GetHeader(src);
   if (!header)
     return {};
@@ -143,8 +142,8 @@ std::vector<u8> Decompress(tcb::span<const u8> src) {
 }
 
 template <bool Safe>
-static void Decompress(tcb::span<const u8> src, tcb::span<u8> dst) {
-  common::BinaryReader reader{src, common::Endianness::Big};
+static void Decompress(std::span<const u8> src, std::span<u8> dst) {
+  util::BinaryReader reader{src, util::Endianness::Big};
   reader.Seek(sizeof(Header));
 
   u8 group_header = 0;
@@ -163,8 +162,8 @@ static void Decompress(tcb::span<const u8> src, tcb::span<u8> dst) {
       const size_t length =
           ((pair >> 12) ? (pair >> 12) : (reader.Read<u8, Safe>().value() + 16)) + 2;
 
-      const u8* base = dst_it - distance;
-      if (base < dst.begin() || dst_it + length > dst.end()) {
+      const u8* base = &(*dst_it) - distance;
+      if (base < &(*dst.begin()) || &(*dst_it) + length > &(*dst.end())) {
         throw std::invalid_argument("Copy is out of bounds");
       }
 #pragma GCC unroll 0
@@ -177,11 +176,11 @@ static void Decompress(tcb::span<const u8> src, tcb::span<u8> dst) {
   }
 }
 
-void Decompress(tcb::span<const u8> src, tcb::span<u8> dst) {
+void Decompress(std::span<const u8> src, std::span<u8> dst) {
   Decompress<true>(src, dst);
 }
 
-void DecompressUnsafe(tcb::span<const u8> src, tcb::span<u8> dst) {
+void DecompressUnsafe(std::span<const u8> src, std::span<u8> dst) {
   Decompress<false>(src, dst);
 }
 }  // namespace syaz0

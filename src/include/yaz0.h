@@ -23,10 +23,8 @@
 #include <optional>
 #include <vector>
 
-#include <span.hpp>
-
-#include "common/binary_reader.h"
-#include "common/types.h"
+#include "types.h"
+#include "util/binary_reader.h"
 
 namespace syaz0 {
 
@@ -34,28 +32,28 @@ struct Header {
   /// 'Yaz0'
   std::array<char, 4> magic;
   /// Size of uncompressed data
-  common::BeInt<u32> uncompressed_size;
+  util::BeInt<u32> uncompressed_size;
   /// [Newer files only] Required buffer alignment
-  common::BeInt<u32> data_alignment;
+  util::BeInt<u32> data_alignment;
   /// Unused (as of December 2019)
   std::array<u8, 4> reserved;
 };
 static_assert(sizeof(Header) == 0x10);
 
-std::optional<Header> GetHeader(tcb::span<const u8> data);
+std::optional<Header> GetHeader(std::span<const u8> data);
 
 /// @param src  Source data
 /// @param data_alignment  Required buffer alignment hint for decompression
 /// @param level  Compression level (6 to 9; 6 is fastest and 9 is slowest)
-std::vector<u8> Compress(tcb::span<const u8> src, u32 data_alignment = 0, int level = 7);
+std::vector<u8> Compress(std::span<const u8> src, u32 data_alignment = 0, int level = 7);
 
-std::vector<u8> Decompress(tcb::span<const u8> src);
+std::vector<u8> Decompress(std::span<const u8> src);
 // For increased flexibility, allocating the destination buffer can be done manually.
 // In that case, the header is assumed to be valid, and the buffer size
 // must be equal to the uncompressed data size.
-void Decompress(tcb::span<const u8> src, tcb::span<u8> dst);
+void Decompress(std::span<const u8> src, std::span<u8> dst);
 // Same, but additionally assumes that the source is well-formed.
 // DO NOT USE THIS FOR UNTRUSTED SOURCES.
-void DecompressUnsafe(tcb::span<const u8> src, tcb::span<u8> dst);
+void DecompressUnsafe(std::span<const u8> src, std::span<u8> dst);
 
 }  // namespace syaz0

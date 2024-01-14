@@ -1,4 +1,5 @@
 ## syaz0
+
 ### Library for data compression using the Yaz0 algorithm
 
 *syaz0* is a native module for Python 3.6+ that provides fast data compression and decompression using Nintendo's [Yaz0](https://zeldamods.org/wiki/Yaz0) algorithm.
